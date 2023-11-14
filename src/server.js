@@ -8,7 +8,7 @@ import mongoose from "mongoose";
 import cron from "node-cron";
 import Web3 from "web3";
 import axios from "axios";
-import { RISKING_ABI, RISKING_ADDRESS } from "./config/index.js";
+import { RISKING_ABI, RISKING_ADDRESS, ERC721_ABI } from "./config/index.js";
 import Risk from "./models/Risk.js";
 
 try {
@@ -73,6 +73,16 @@ const url = `https://eth-goerli.g.alchemy.com/v2/${process.env.CONTRACT_ALCHEMY_
 const web3 = new Web3(url);
 const riskingContract = new web3.eth.Contract(RISKING_ABI, RISKING_ADDRESS);
 
+const getTokenURI = async (tokenAddress, tokenId) => {
+  try {
+    const contract = new web3.eth.Contract(ERC721_ABI, tokenAddress);
+    const tokenURI = await contract.methods.tokenURI(tokenId).call();
+    return { isError: false, tokenURI };
+  } catch (e) {
+    console.log(e);
+    return { isError: true, tokenURI: "" };
+  }
+};
 cron.schedule("* * * * *", async () => {
   console.log("Updating Risking status...");
   const allRisks = await riskingContract.methods.getAllRisks().call();
