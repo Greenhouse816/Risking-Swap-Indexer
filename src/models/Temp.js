@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const TempSchema = new mongoose.Schema({
-  riskId: {
+  tempId: {
     require: true,
     unique: true,
     type: String,
@@ -10,41 +10,40 @@ const TempSchema = new mongoose.Schema({
     require: true,
     type: Number,
   },
-  deposits: 
-    {
-      owner: {
-        require: true,
-        type: String,
-      },
-      etherValue: {
-        require: true,
-        type: String,
-      },
-      nftTokens: [
-        {
-          nftAddress: {
-            require: true,
-            type: String,
-          },
-          nftId: {
-            require: true,
-            type: String,
-          },
-          nftAmount: {
-            require: true,
-            type: String,
-          },
-          nftName: {
-            require: true,
-            type: String,
-          },
-          nftUri: {
-            require: true,
-            type: String,
-          },
-        },
-      ],
+  deposits: {
+    owner: {
+      require: true,
+      type: String,
     },
+    etherValue: {
+      require: true,
+      type: String,
+    },
+    nftTokens: [
+      {
+        nftAddress: {
+          require: true,
+          type: String,
+        },
+        nftId: {
+          require: true,
+          type: String,
+        },
+        nftAmount: {
+          require: true,
+          type: String,
+        },
+        nftName: {
+          require: true,
+          type: String,
+        },
+        nftUri: {
+          require: true,
+          type: String,
+        },
+      },
+    ],
+  },
 });
 
 const Temp = mongoose.model("temps", TempSchema);
