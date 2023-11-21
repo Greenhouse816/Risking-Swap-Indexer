@@ -11,6 +11,8 @@ import axios from "axios";
 import { RISKING_ABI, RISKING_ADDRESS, ERC721_ABI } from "./config/index.js";
 import Risk from "./models/Risk.js";
 import Temp from "./models/Temp.js";
+import Collection from "./models/Collection.js";
+import Metadata from "./models/Metadata.js";
 
 try {
   dotenv.config();
@@ -18,7 +20,7 @@ try {
   console.error("Error loading environment variables:", error);
   process.exit(1);
 }
-
+console.log(process.env.MORALIS_API_KEY)
 const app = express();
 
 app.use(helmet());
@@ -28,9 +30,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
 const corsOrigin = {
-  allowedOrigins: [
-    "http://localhost:5173, https://dev.risking.io, 192.168.109.84:5173",
-  ],
+  allowedOrigins: ["http://localhost:5173, https://dev.risking.io, 192.168.109.84:5173"],
   credentials: true,
   optionSuccessStatus: 200,
 };
@@ -86,7 +86,68 @@ const getTokenURI = async (tokenAddress, tokenId) => {
     return { isError: true, tokenURI: "" };
   }
 };
-cron.schedule("* * * * *", async () => {
+
+const getNftDatabyCollection = async () => {
+  try {
+    const collections = await Collection.find({});
+    console.log("addresses", collections)
+    const metaData = await Promise.all(collections.map(async (collection) => {
+      let nextCursor = "start";
+      let nftMetadata = [];
+      while (nextCursor) {
+        const moralisReuestOption = {
+          method: "Get",
+          url: `https://deep-index.moralis.io/api/v2.2/nft/${collection.address}/owners`,
+          params: {
+            chain: "goerli",
+            format: "decimal",
+            limit: "100",
+            cursor: nextCursor === "start" ? "" : nextCursor,
+          },
+          headers: {
+            accept: "application/json",
+            "X-API-Key": process.env.MORALIS_API_KEY,
+          },
+        };
+
+        const response = await axios.request(moralisReuestOption);
+        nftMetadata = nftMetadata.concat(response.data.result);
+        nextCursor = response.data.cursor;
+      }
+      console.log("getting new METADATA ...");
+      const newMeta = nftMetadata.map((data) => {
+        let tokenUri = JSON.parse(data.metadata)?.image || "";
+        tokenUri = tokenUri.replace("ipfs://", "https://ipfs.io/ipfs/");
+        tokenUri = tokenUri.replace("nftstorage.link", "ipfs.io");
+        return {
+            owner: data.owner_of,
+            nftId: data.token_id,
+            nftAmount: data.contract_type === "ERC721" ? "0" : data.amount,
+            nftUri: tokenUri,
+            nftName: data.metadata?.name ? data.metadata.name : collection.name 
+          }
+      })
+      console.log(newMeta)
+      await Metadata.findOneAndUpdate(
+        {
+        address: collection.address,
+       },
+       {
+        contract_type: nftMetadata[0].contract_type,
+        tokens: newMeta
+       },
+       {
+        upsert: true,
+        new: true
+       })
+    }))
+  } catch (error) {
+    console.log(error)
+  }
+}
+
+cron.schedule("*/5 * * * *", async () => {
+  await getNftDatabyCollection();
   console.log("Updating Risking status...");
   const allRisks = await riskingContract.methods.getAllRisks().call();
   try {
@@ -189,83 +250,89 @@ cron.schedule("* * * * *", async () => {
   const allTemps = await riskingContract.methods.getAllTemps().call();
   try {
     await Promise.all(
-      allTemps.map(async (temp) => {
-        const nftTokens = await Promise.all(
-          temp.deposit.nftTokens.map(async (nft) => {
-            const metadata = await getTokenURI(
-              nft.nftAddress,
-              Number(nft.nftId)
-            );
-            if (!metadata.isError && metadata.tokenURI) {
-              let metadataUri = metadata.tokenURI;
-              metadataUri = metadataUri.replace(
-                "nftstorage.link/ipfs",
-                "ipfs.io/ipfs"
+      allTemps
+        .map(async (temp) => {
+          const nftTokens = await Promise.all(
+            temp.deposit.nftTokens.map(async (nft) => {
+              const metadata = await getTokenURI(
+                nft.nftAddress,
+                Number(nft.nftId)
               );
-              if (metadataUri.includes(".ipfs.nftstorage.link")) {
-                const str = metadataUri.split(".ipfs.nftstorage.link");
-                const cid = str[0].split("//")[1];
-                metadataUri = "https://ipfs.io/ipfs/" + cid + str[1];
-              }
-              try {
-                const response = await axios.get(metadataUri);
-                const nftName = ((await response.data?.name) ?? "")
-                  .split("#")[0]
-                  .trim();
-                let nftUri = await response.data?.image;
-                nftUri = nftUri.replace("ipfs://", "https://ipfs.io/ipfs/");
-                nftUri = nftUri.replace("nftstorage.link", "ipfs.io");
+              if (!metadata.isError && metadata.tokenURI) {
+                let metadataUri = metadata.tokenURI;
+                metadataUri = metadataUri.replace(
+                  "nftstorage.link/ipfs",
+                  "ipfs.io/ipfs"
+                );
+                if (metadataUri.includes(".ipfs.nftstorage.link")) {
+                  const str = metadataUri.split(".ipfs.nftstorage.link");
+                  const cid = str[0].split("//")[1];
+                  metadataUri = "https://ipfs.io/ipfs/" + cid + str[1];
+                }
+                try {
+                  const response = await axios.get(metadataUri);
+                  const nftName = ((await response.data?.name) ?? "")
+                    .split("#")[0]
+                    .trim();
+                  let nftUri = await response.data?.image;
+                  nftUri = nftUri.replace(
+                    "ipfs://",
+                    "https://ipfs.io/ipfs/"
+                  );
+                  nftUri = nftUri.replace("nftstorage.link", "ipfs.io");
+                  return {
+                    nftAddress: nft.nftAddress,
+                    nftId: nft.nftId.toString(),
+                    nftAmount: (nft.nftAmount ?? "0").toString(),
+                    nftName: nftName,
+                    nftUri: nftUri,
+                  };
+                } catch (e) {
+                  console.log(e);
+                  return {
+                    nftAddress: nft.nftAddress,
+                    nftId: nft.nftId.toString(),
+                    nftAmount: (nft.nftAmount ?? "0").toString(),
+                    nftName: "",
+                    nftUri: "",
+                  };
+                }
+              } else
                 return {
                   nftAddress: nft.nftAddress,
-                  nftId: nft.nftId.toString(),
-                  nftAmount: (nft.nftAmount ?? "0").toString(),
-                  nftName: nftName,
-                  nftUri: nftUri,
-                };
-              } catch (e) {
-                console.log(e);
-                return {
-                  nftAddress: nft.nftAddress,
-                  nftId: nft.nftId.toString(),
-                  nftAmount: (nft.nftAmount ?? "0").toString(),
+                  nftId: nft.nftId,
+                  nftAmount: "",
                   nftName: "",
                   nftUri: "",
                 };
-              }
-            } else
-              return {
-                nftAddress: nft.nftAddress,
-                nftId: nft.nftId,
-                nftAmount: "",
-                nftName: "",
-                nftUri: "",
-              };
-          })
-        );
+            })
+          );
 
-        await Temp.findOneAndUpdate(
-          { tempId: temp.id.toString() },
-          {
-            state: temp.state,
-            deposits: {
-              owner: temp.deposit.owner,
-              etherValue: temp.deposit.etherValue.toString(),
-              nftTokens: nftTokens,
+          await Temp.findOneAndUpdate(
+            { tempId: temp.id.toString() },
+            {
+              state: temp.state,
+              deposits: {
+                owner: temp.deposit.owner,
+                etherValue: temp.deposit.etherValue.toString(),
+                nftTokens: nftTokens
+              },
             },
-          },
-          {
-            upsert: true,
-            new: true,
-          }
-        );
-      })
+            {
+              upsert: true,
+              new: true,
+            }
+          );
+        })
     );
   } catch (e) {
     console.log(e);
   } finally {
     console.log("Finished Temp updating.");
   }
+
 });
 
 const port = process.env.PORT || 5000;
 app.listen(port, () => console.log(`Server is listening on port ${port}`));
+
