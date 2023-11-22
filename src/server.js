@@ -13,6 +13,7 @@ import Risk from "./models/Risk.js";
 import Temp from "./models/Temp.js";
 import Collection from "./models/Collection.js";
 import Metadata from "./models/Metadata.js";
+import axiosInstance from "./config/axios.js";
 
 try {
   dotenv.config();
@@ -82,7 +83,7 @@ const getTokenURI = async (tokenAddress, tokenId) => {
     const tokenURI = await contract.methods.tokenURI(tokenId).call();
     return { isError: false, tokenURI };
   } catch (e) {
-    console.log(e);
+    console.log("get token uri error ....", e);
     return { isError: true, tokenURI: "" };
   }
 };
@@ -90,7 +91,7 @@ const getTokenURI = async (tokenAddress, tokenId) => {
 const getNftDatabyCollection = async () => {
   try {
     const collections = await Collection.find({});
-    console.log("addresses", collections)
+
     const metaData = await Promise.all(collections.map(async (collection) => {
       let nextCursor = "start";
       let nftMetadata = [];
@@ -106,11 +107,11 @@ const getNftDatabyCollection = async () => {
           },
           headers: {
             accept: "application/json",
-            "X-API-Key": process.env.MORALIS_API_KEY,
+            "X-API-Key": process.env.MORALIS_API_KEY2,
           },
         };
 
-        const response = await axios.request(moralisReuestOption);
+        const response = await axiosInstance.request(moralisReuestOption);
         nftMetadata = nftMetadata.concat(response.data.result);
         nextCursor = response.data.cursor;
       }
@@ -127,7 +128,7 @@ const getNftDatabyCollection = async () => {
             nftName: data.metadata?.name ? data.metadata.name : collection.name 
           }
       })
-      console.log(newMeta)
+
       await Metadata.findOneAndUpdate(
         {
         address: collection.address,
@@ -147,8 +148,8 @@ const getNftDatabyCollection = async () => {
 }
 
 cron.schedule("*/5 * * * *", async () => {
-  await getNftDatabyCollection();
   console.log("Updating Risking status...");
+  await getNftDatabyCollection(); 
   const allRisks = await riskingContract.methods.getAllRisks().call();
   try {
     await Promise.all(
@@ -175,7 +176,7 @@ cron.schedule("*/5 * * * *", async () => {
                       metadataUri = "https://ipfs.io/ipfs/" + cid + str[1];
                     }
                     try {
-                      const response = await axios.get(metadataUri);
+                      const response = await axiosInstance.get(metadataUri);
                       const nftName = ((await response.data?.name) ?? "")
                         .split("#")[0]
                         .trim();
@@ -270,7 +271,7 @@ cron.schedule("*/5 * * * *", async () => {
                   metadataUri = "https://ipfs.io/ipfs/" + cid + str[1];
                 }
                 try {
-                  const response = await axios.get(metadataUri);
+                  const response = await axiosInstance.get(metadataUri);
                   const nftName = ((await response.data?.name) ?? "")
                     .split("#")[0]
                     .trim();
@@ -288,7 +289,7 @@ cron.schedule("*/5 * * * *", async () => {
                     nftUri: nftUri,
                   };
                 } catch (e) {
-                  console.log(e);
+                  console.log("get metadata error .. ",e);
                   return {
                     nftAddress: nft.nftAddress,
                     nftId: nft.nftId.toString(),
@@ -332,6 +333,8 @@ cron.schedule("*/5 * * * *", async () => {
   }
 
 });
+
+
 
 const port = process.env.PORT || 5000;
 app.listen(port, () => console.log(`Server is listening on port ${port}`));
