@@ -138,9 +138,7 @@ const getNftDatabyCollection = async () => {
   }
 }
 
-
 await getNftDatabyCollection();
-
 cron.schedule("*/2 * * * *", async () => {
   console.log("Updating Risking status...");
   const allRisks = await riskingContract.methods.getAllRisks().call();

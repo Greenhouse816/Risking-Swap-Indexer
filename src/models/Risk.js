@@ -76,6 +76,9 @@ const RiskSchema = new mongoose.Schema({
       type: String,
     },
   },
+  txHash: {
+    type: String
+  }
 });
 
 const Risk = mongoose.model("risks", RiskSchema);
